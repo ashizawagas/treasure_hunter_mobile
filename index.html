@@ -1,3 +1,1639 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>たからばこハンター</title>
+<script type="importmap">
+  {"imports": {"three": "https://unpkg.com/three@0.160.1/build/three.module.js",
+  "three/addons/": "https://unpkg.com/three@0.160.1/examples/jsm/"}}
+</script>
+<script type="module">
+let scene, renderer;
+const [width,height,w] = [800,600,320];
+let camera, light;
+let p = new THREE.Vector3(9,0,9);
+let f = new THREE.Vector3(1,0,0);
+let status = "start", cnt = 0;
+let map;
+
+// ゲーム状態管理
+let gameState = "start"; // "start", "playing", "paused", "cleared", "gameover"
+let mapSize = 19; // 常に上級サイズ
+
+// 宝箱関連の変数
+let treasures = [];
+let foundTreasures = 0;
+let totalTreasures = 0;
+let gameCleared = false;
+
+// ハンターモード関連の変数
+let robots = [];
+let playerLives = 3;
+let currentStage = 1;
+let tornadoes = [];
+
+// 無敵時間関連の変数
+let playerInvincible = false;
+let playerInvincibleTimer = 0;
+
+// 2D表示関連の変数
+let show2D = false;
+let canvas2D;
+let ctx2D;
+
+// マッピングエリア関連の変数
+let showMapping = true; // デフォルトで表示
+let canvasMapping;
+let ctxMapping;
+let visitedCells = new Set();
+
+// 回転制御変数
+let targetRotation = 0;
+let currentRotation = 0;
+let isRotating = false;
+
+// 移動制御変数
+let isMoving = false;
+let moveStartPos = new THREE.Vector3();
+let moveTargetPos = new THREE.Vector3();
+
+// メッセージ表示関連の変数
+let messageElement;
+let messageTimeout;
+
+import * as THREE from "three";
+import * as BufferGeometryUtils from "three/addons/utils/BufferGeometryUtils.js";
+
+// ステージに応じたロボット数を取得
+function getRobotCount(stage) {
+  if (stage <= 5) return 3;
+  if (stage <= 10) return 4;
+  return 4 + Math.floor((stage - 10) / 5); // ステージ11以降も5ステージごとに1体増加
+}
+
+// ゲームを初期化する関数
+function initializeGame() {
+  const settings = { size: 19, startPos: [9, 9], digPos: [16, 16] };
+  mapSize = 19;
+  
+  // マップ配列を再作成
+  map = new Array(mapSize).fill(null).map(() => new Array(mapSize));
+  
+  // 既存の宝箱を削除
+  treasures.forEach(treasure => {
+    scene.remove(treasure.group);
+  });
+  treasures = [];
+  foundTreasures = 0;
+  totalTreasures = 0;
+  gameCleared = false;
+  
+  // 既存のロボットを削除
+  robots.forEach(robot => {
+    scene.remove(robot.group);
+  });
+  robots = [];
+  
+  // 既存の竜巻を削除
+  tornadoes.forEach(tornado => {
+    scene.remove(tornado.group);
+  });
+  tornadoes = [];
+  
+  // プレイヤー位置をリセット
+  p.set(settings.startPos[0], 0, settings.startPos[1]);
+  f.set(1, 0, 0);
+  currentRotation = 0;
+  targetRotation = 0;
+  isRotating = false;
+  isMoving = false;
+  
+  // 無敵時間をリセット
+  playerInvincible = false;
+  playerInvincibleTimer = 0;
+  
+  // 訪問済みセルをリセット（マッピング初期化）
+  visitedCells.clear();
+  visitedCells.add(`${p.x},${p.z}`);
+  
+  // 2D表示をリセット
+  show2D = false;
+  if (canvas2D) {
+    canvas2D.style.display = 'none';
+  }
+  document.getElementById("render3D").style.display = 'block';
+  document.getElementById("viewMode").innerText = '2Dひょうじにきりかえ (H)';
+  
+  // マッピングエリアをデフォルトで表示
+  showMapping = true;
+  if (canvasMapping) {
+    canvasMapping.style.display = 'block';
+  }
+  document.getElementById("mappingMode").innerText = 'マッピングひひょうじ (M)';
+  
+  // 迷路を再生成
+  generateMaze();
+  
+  // ロボットを配置
+  createRobots();
+  
+  // UI更新
+  document.getElementById("total").innerText = totalTreasures;
+  document.getElementById("found").innerText = foundTreasures;
+  document.getElementById("status").innerText = "ロボットをさけてたからばこをあつめよう！";
+  document.getElementById("status").style.color = "#333";
+  document.getElementById("status").style.fontSize = "16px";
+  
+  document.getElementById("lives").innerText = playerLives;
+  document.getElementById("stage").innerText = currentStage;
+  document.getElementById("robotCount").innerText = getRobotCount(currentStage);
+}
+
+// 迷路を生成する関数
+function generateMaze() {
+  const settings = { size: 19, startPos: [9, 9], digPos: [16, 16] };
+  
+  // 既存の壁を削除
+  scene.children = scene.children.filter(child => 
+    child.type !== 'Mesh' || !child.material || 
+    (child.material.color.getHex() !== 0xFFFFF0 && child.material.color.getHex() !== 0x8B4513)
+  );
+  
+  // 迷路を初期化
+  for (let x=0; x<mapSize; x++) {
+    for (let y=0; y<mapSize; y++) {
+      map[x][y] = -1;
+      if ((x > 0)&&(x < mapSize-1)&&(y > 0)&&(y < mapSize-1)) map[x][y] = 1;
+    }
+  }
+  
+  dig(settings.digPos[0], settings.digPos[1]);
+  const blocks = new Array();
+  
+  for (let x=0; x<mapSize; x++) {
+    for (let y=0; y<mapSize; y++) {
+      if (map[x][y] == 1) {
+        const box = new THREE.BoxGeometry(w-1,w-1,w-1);
+        box.translate(x*w,0,y*w);
+        blocks.push(box);
+      } else if (map[x][y] == 0) {
+        const dir = [
+          y > 0 ? map[x][y-1] : 1,
+          y < mapSize-1 ? map[x][y+1] : 1,
+          x > 0 ? map[x-1][y] : 1,
+          x < mapSize-1 ? map[x+1][y] : 1
+        ];
+        let wallCount = 0;
+        dir.forEach(d => {if (d == 1) wallCount++;});
+        
+        // 行き止まり（3方向が壁）に宝箱を設置
+        if (wallCount == 3) {
+          createTreasureBox(x, y);
+          totalTreasures++;
+        }
+      }
+    }
+  }
+
+  // 迷路の壁を作成
+  if (blocks.length > 0) {
+    const geometry = BufferGeometryUtils.mergeGeometries(blocks);
+    const material = new THREE.MeshPhongMaterial({color: "#FFFFF0"});
+    const mesh = new THREE.Mesh(geometry,material);
+    scene.add(mesh);
+  }
+}
+
+// ロボットを作成する関数
+function createRobots() {
+  const robotCount = getRobotCount(currentStage);
+  const attempts = 100;
+  
+  for (let i = 0; i < robotCount; i++) {
+    let placed = false;
+    for (let attempt = 0; attempt < attempts && !placed; attempt++) {
+      const x = Math.floor(Math.random() * mapSize);
+      const y = Math.floor(Math.random() * mapSize);
+      
+      // 通路で、プレイヤーから離れた場所に配置
+      if (map[x][y] === 0 && 
+          Math.abs(x - p.x) > 3 && Math.abs(y - p.z) > 3) {
+        createRobot(x, y);
+        placed = true;
+      }
+    }
+  }
+}
+
+// 個別のロボットを作成する関数
+function createRobot(x, y) {
+  const robotGroup = new THREE.Group();
+  
+  // ロボットの脚部（濃い灰色）- 地面すれすれに調整
+  const legGeometry = new THREE.CylinderGeometry(w/12, w/10, w/6, 8);
+  const legMaterial = new THREE.MeshPhongMaterial({color: "#555555"});
+  const leftLeg = new THREE.Mesh(legGeometry, legMaterial);
+  leftLeg.position.set(-w/8, w/12, 0);
+  robotGroup.add(leftLeg);
+  
+  const rightLeg = new THREE.Mesh(legGeometry, legMaterial);
+  rightLeg.position.set(w/8, w/12, 0);
+  robotGroup.add(rightLeg);
+  
+  // ロボットの胴体（赤色）- 高さを調整
+  const bodyGeometry = new THREE.BoxGeometry(w/3, w/3, w/4);
+  const bodyMaterial = new THREE.MeshPhongMaterial({color: "#FF0000"});
+  const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+  body.position.set(0, w/3, 0);
+  robotGroup.add(body);
+  
+  // ロボットの頭部（暗い赤色）
+  const headGeometry = new THREE.BoxGeometry(w/4, w/6, w/5);
+  const headMaterial = new THREE.MeshPhongMaterial({color: "#CC0000"});
+  const head = new THREE.Mesh(headGeometry, headMaterial);
+  head.position.set(0, w/3 + w/8, 0);
+  robotGroup.add(head);
+  
+  // サングラス（黒色）
+  const sunglassesGeometry = new THREE.BoxGeometry(w/3.5, w/20, w/12);
+  const sunglassesMaterial = new THREE.MeshPhongMaterial({color: "#000000"});
+  const sunglasses = new THREE.Mesh(sunglassesGeometry, sunglassesMaterial);
+  sunglasses.position.set(0, w/3 + w/8, w/12);
+  robotGroup.add(sunglasses);
+  
+  // サングラスのレンズ（濃い青色）
+  const lensGeometry = new THREE.BoxGeometry(w/12, w/25, w/15);
+  const lensMaterial = new THREE.MeshPhongMaterial({color: "#000080"});
+  const leftLens = new THREE.Mesh(lensGeometry, lensMaterial);
+  leftLens.position.set(-w/12, w/3 + w/8, w/11);
+  robotGroup.add(leftLens);
+  
+  const rightLens = new THREE.Mesh(lensGeometry, lensMaterial);
+  rightLens.position.set(w/12, w/3 + w/8, w/11);
+  robotGroup.add(rightLens);
+  
+  // ロボットの腕（灰色）
+  const armGeometry = new THREE.BoxGeometry(w/8, w/4, w/12);
+  const armMaterial = new THREE.MeshPhongMaterial({color: "#777777"});
+  const leftArm = new THREE.Mesh(armGeometry, armMaterial);
+  leftArm.position.set(-w/4, w/3, 0);
+  robotGroup.add(leftArm);
+  
+  const rightArm = new THREE.Mesh(armGeometry, armMaterial);
+  rightArm.position.set(w/4, w/3, 0);
+  robotGroup.add(rightArm);
+  
+  // アンテナ（青色）
+  const antennaGeometry = new THREE.CylinderGeometry(w/50, w/50, w/8, 8);
+  const antennaMaterial = new THREE.MeshPhongMaterial({color: "#0000FF"});
+  const antenna = new THREE.Mesh(antennaGeometry, antennaMaterial);
+  antenna.position.set(0, w/3 + w/6 + w/16, 0);
+  robotGroup.add(antenna);
+  
+  // アンテナの先端（緑色）
+  const antennaTopGeometry = new THREE.SphereGeometry(w/40, 8, 6);
+  const antennaTopMaterial = new THREE.MeshPhongMaterial({color: "#00FF00", emissive: "#004400"});
+  const antennaTop = new THREE.Mesh(antennaTopGeometry, antennaTopMaterial);
+  antennaTop.position.set(0, w/3 + w/6 + w/12, 0);
+  robotGroup.add(antennaTop);
+  
+  // ロボットの位置を設定（地面すれすれ）
+  robotGroup.position.set(x * w, 0, y * w);
+  
+  // ロボットデータを保存（改良版）
+  const robotData = {
+    group: robotGroup,
+    x: x,
+    y: y,
+    direction: Math.floor(Math.random() * 4), // 0:北, 1:東, 2:南, 3:西
+    moveTimer: 0,
+    moveInterval: 15 + Math.random() * 15, // より頻繁に移動
+    targetX: null,
+    targetY: null,
+    lastX: null,
+    lastY: null,
+    stuckCounter: 0,
+    targetResetTimer: 0,
+    inTornado: false // 竜巻に入っているかのフラグ
+  };
+  
+  robots.push(robotData);
+  scene.add(robotGroup);
+  
+  return robotData;
+}
+
+// 竜巻を作成する関数（上下反転、フェードアウト対応）
+function createTornado(x, y) {
+  // 既に竜巻がある場合は何もしない
+  if (tornadoes.some(tornado => tornado.x === x && tornado.y === y)) return;
+  
+  // 壁には竜巻を作れない
+  if (map[x][y] !== 0) return;
+  
+  const tornadoGroup = new THREE.Group();
+  const tornadoParts = []; // 各パーツを保存して後で透明度を変更
+  
+  // 竜巻の本体（複数の円錐を重ねて作成）- 上下反転
+  for (let i = 0; i < 5; i++) {
+    const radius = (w/6) * (0.3 + i * 0.15); // 下が細く、上が太く
+    const height = w/8;
+    const tornadoGeometry = new THREE.ConeGeometry(radius, height, 8);
+    const tornadoMaterial = new THREE.MeshPhongMaterial({
+      color: "#87CEEB",
+      transparent: true,
+      opacity: 0.6 - i * 0.05
+    });
+    const tornadoPart = new THREE.Mesh(tornadoGeometry, tornadoMaterial);
+    tornadoPart.position.set(0, i * height/2, 0);
+    // 円錐を上下反転（下が細く、上が太く）
+    tornadoPart.rotation.x = Math.PI;
+    tornadoGroup.add(tornadoPart);
+    tornadoParts.push(tornadoPart); // パーツを保存
+  }
+  
+  // 竜巻の位置を設定
+  tornadoGroup.position.set(x * w, 0, y * w);
+  
+  const tornadoData = {
+    group: tornadoGroup,
+    parts: tornadoParts, // 各パーツへの参照を保存
+    x: x,
+    y: y,
+    timer: 300, // 5秒で消える
+    maxTimer: 300, // 最大タイマー値（フェードアウト計算用）
+    rotationSpeed: 0.1
+  };
+  
+  tornadoes.push(tornadoData);
+  scene.add(tornadoGroup);
+}
+
+// ランダムな通路の座標を取得（改良版）
+function getRandomPassagePosition() {
+  const passages = [];
+  for (let x = 0; x < mapSize; x++) {
+    for (let y = 0; y < mapSize; y++) {
+      if (map[x][y] === 0) {
+        passages.push({x, y});
+      }
+    }
+  }
+  
+  if (passages.length === 0) {
+    // 通路がない場合は中央付近を返す
+    return {x: Math.floor(mapSize/2), y: Math.floor(mapSize/2)};
+  }
+  
+  return passages[Math.floor(Math.random() * passages.length)];
+}
+
+// 強制的にロボットを生成する関数
+function forceCreateRobot() {
+  const maxAttempts = 50;
+  let placed = false;
+  
+  // まず、プレイヤーから離れた場所を試す
+  for (let attempt = 0; attempt < maxAttempts && !placed; attempt++) {
+    const randomPos = getRandomPassagePosition();
+    if (randomPos && Math.abs(randomPos.x - p.x) > 3 && Math.abs(randomPos.y - p.z) > 3) {
+      createRobot(randomPos.x, randomPos.y);
+      placed = true;
+    }
+  }
+  
+  // プレイヤーから離れた場所に配置できない場合は、任意の通路に配置
+  if (!placed) {
+    const randomPos = getRandomPassagePosition();
+    if (randomPos) {
+      createRobot(randomPos.x, randomPos.y);
+      placed = true;
+    }
+  }
+  
+  // それでも配置できない場合は、強制的に中央付近に配置
+  if (!placed) {
+    const centerX = Math.floor(mapSize / 2);
+    const centerY = Math.floor(mapSize / 2);
+    
+    // 中央付近で通路を探す
+    for (let dx = -2; dx <= 2 && !placed; dx++) {
+      for (let dy = -2; dy <= 2 && !placed; dy++) {
+        const testX = centerX + dx;
+        const testY = centerY + dy;
+        if (testX >= 0 && testX < mapSize && testY >= 0 && testY < mapSize && 
+            map[testX][testY] === 0) {
+          createRobot(testX, testY);
+          placed = true;
+        }
+      }
+    }
+  }
+  
+  return placed;
+}
+
+// ゲームを開始する関数
+function startGame() {
+  gameState = "playing";
+  status = "ready";
+  
+  // 初期化
+  playerLives = 3;
+  currentStage = 1;
+  
+  // スタート画面を非表示
+  document.getElementById("startScreen").style.display = 'none';
+  document.getElementById("gameScreen").style.display = 'block';
+  
+  // ゲームを初期化
+  initializeGame();
+}
+
+// ゲームを一時停止/再開する関数
+function togglePause() {
+  if (gameState === "playing") {
+    gameState = "paused";
+    document.getElementById("status").innerText = "⏸️ いちじていし - Pキーでさいかい";
+    document.getElementById("status").style.color = "#FF8C00";
+    showMessage("⏸️ ゲームを一時停止しました", 2000);
+  } else if (gameState === "paused") {
+    gameState = "playing";
+    document.getElementById("status").innerText = "ロボットをさけてたからばこをあつめよう！";
+    document.getElementById("status").style.color = "#333";
+    showMessage("▶️ ゲームを再開しました", 2000);
+  }
+}
+
+// スタート画面に戻る関数
+function returnToStart() {
+  gameState = "start";
+  status = "start";
+  
+  // ゲーム画面を非表示
+  document.getElementById("gameScreen").style.display = 'none';
+  document.getElementById("startScreen").style.display = 'block';
+  
+  // メッセージを削除
+  if (messageElement) {
+    messageElement.remove();
+    messageElement = null;
+  }
+  if (messageTimeout) {
+    clearTimeout(messageTimeout);
+  }
+}
+
+// 宝箱を作成する関数
+function createTreasureBox(x, y) {
+  const treasureGroup = new THREE.Group();
+  
+  // 宝箱の本体（茶色）
+  const boxGeometry = new THREE.BoxGeometry(w/4, w/4, w/4);
+  const boxMaterial = new THREE.MeshPhongMaterial({color: "#8B4513"});
+  const box = new THREE.Mesh(boxGeometry, boxMaterial);
+  box.position.set(0, w/8, 0);
+  treasureGroup.add(box);
+  
+  // 宝箱の蓋（少し明るい茶色）- 閉じた状態
+  const lidGeometry = new THREE.BoxGeometry(w/4 + 10, w/8, w/4 + 10);
+  const lidMaterial = new THREE.MeshPhongMaterial({color: "#A0522D"});
+  const lid = new THREE.Mesh(lidGeometry, lidMaterial);
+  lid.position.set(0, w/4, 0);
+  treasureGroup.add(lid);
+  
+  // 金色の装飾
+  const decorGeometry = new THREE.BoxGeometry(w/6, w/12, w/6);
+  const decorMaterial = new THREE.MeshPhongMaterial({color: "#FFD700"});
+  const decor = new THREE.Mesh(decorGeometry, decorMaterial);
+  decor.position.set(0, w/4 + w/16, 0);
+  treasureGroup.add(decor);
+  
+  // 宝箱の位置を設定
+  treasureGroup.position.set(x * w, 0, y * w);
+  
+  // 宝箱データを保存
+  const treasureData = {
+    group: treasureGroup,
+    box: box,
+    lid: lid,
+    decor: decor,
+    x: x,
+    y: y,
+    found: false,
+    originalY: 0,
+    lidOpenAngle: 0
+  };
+  
+  treasures.push(treasureData);
+  scene.add(treasureGroup);
+  
+  return treasureData;
+}
+
+// 宝箱を閉じた状態にリセットする関数
+function resetTreasureBox(treasure) {
+  treasure.found = false;
+  
+  // 宝箱の位置をリセット
+  treasure.group.position.y = 0;
+  treasure.group.scale.set(1, 1, 1);
+  
+  // 蓋を閉じた状態に戻す
+  treasure.lid.rotation.x = 0;
+  treasure.lid.position.set(0, w/4, 0);
+  
+  // 装飾も元の位置に戻す
+  treasure.decor.rotation.x = 0;
+  treasure.decor.position.set(0, w/4 + w/16, 0);
+  
+  // 発光効果をリセット
+  treasure.group.children.forEach(child => {
+    if (child.material) {
+      child.material.emissive = new THREE.Color(0x000000);
+    }
+  });
+  
+  // 宝箱の中身（金貨）を削除
+  if (treasure.treasure) {
+    treasure.group.remove(treasure.treasure);
+    treasure.treasure = null;
+  }
+}
+
+// 宝箱を開くアニメーション
+function openTreasureBox(treasure) {
+  // 蓋を開く（回転させる）
+  treasure.lid.rotation.x = -Math.PI/2; // 90度後ろに倒す
+  treasure.lid.position.set(0, w/4 + w/16, -w/8); // 位置も調整
+  
+  // 装飾も蓋と一緒に移動
+  treasure.decor.rotation.x = -Math.PI/2;
+  treasure.decor.position.set(0, w/4 + w/8, -w/8);
+  
+  // 宝箱の中身（金貨）を追加
+  if (!treasure.treasure) {
+    const treasureGeometry = new THREE.SphereGeometry(w/12, 8, 6);
+    const treasureMaterial = new THREE.MeshPhongMaterial({
+      color: "#FFD700",
+      emissive: "#444400"
+    });
+    treasure.treasure = new THREE.Mesh(treasureGeometry, treasureMaterial);
+    treasure.treasure.position.set(0, w/6, 0);
+    treasure.group.add(treasure.treasure);
+  }
+}
+
+// メッセージを表示する関数
+function showMessage(text, duration = 3000) {
+  // 既存のメッセージがあれば削除
+  if (messageElement) {
+    messageElement.remove();
+  }
+  if (messageTimeout) {
+    clearTimeout(messageTimeout);
+  }
+  
+  // メッセージ要素を作成
+  messageElement = document.createElement('div');
+  messageElement.className = 'treasure-message';
+  messageElement.textContent = text;
+  document.body.appendChild(messageElement);
+  
+  // アニメーション開始
+  setTimeout(() => {
+    messageElement.classList.add('show');
+  }, 10);
+  
+  // 指定時間後にメッセージを削除
+  messageTimeout = setTimeout(() => {
+    if (messageElement) {
+      messageElement.classList.remove('show');
+      setTimeout(() => {
+        if (messageElement) {
+          messageElement.remove();
+          messageElement = null;
+        }
+      }, 500);
+    }
+  }, duration);
+}
+
+// 宝箱を見つけた時のアニメーション
+function findTreasure(treasure) {
+  if (treasure.found) return;
+  
+  treasure.found = true;
+  foundTreasures++;
+  
+  // 「たからばこ はっけん」メッセージを表示
+  showMessage('🎉 たからばこ はっけん！ 🎉', 2500);
+  
+  // 宝箱を光らせる
+  treasure.group.children.forEach(child => {
+    if (child.material) {
+      child.material.emissive = new THREE.Color(0x444400);
+    }
+  });
+  
+  // 宝箱を少し浮上させる
+  treasure.group.position.y = w/4;
+  
+  // 宝箱の発見アニメーション（スケールアップ）
+  const originalScale = treasure.group.scale.clone();
+  treasure.group.scale.set(1.5, 1.5, 1.5);
+  
+  // 0.5秒後に元のサイズに戻し、宝箱を開く
+  setTimeout(() => {
+    treasure.group.scale.copy(originalScale);
+    openTreasureBox(treasure);
+  }, 500);
+  
+  // UI更新
+  document.getElementById("found").innerText = foundTreasures;
+  document.getElementById("total").innerText = totalTreasures;
+  
+  // 全ての宝箱を見つけた場合
+  if (foundTreasures >= totalTreasures && !gameCleared) {
+    gameCleared = true;
+    
+    // 次のステージへ
+    currentStage++;
+    document.getElementById("status").innerText = `🎉 ステージ ${currentStage - 1} クリア！ 🎉`;
+    document.getElementById("status").style.color = "#FFD700";
+    document.getElementById("status").style.fontSize = "24px";
+    
+    setTimeout(() => {
+      showMessage(`🏆 ステージ ${currentStage - 1} クリア！次のステージへ！ 🏆`, 3000);
+      
+      // 3秒後に次のステージを開始
+      setTimeout(() => {
+        // 宝箱をすべて閉じた状態にリセット
+        treasures.forEach(treasure => {
+          resetTreasureBox(treasure);
+        });
+        
+        initializeGame();
+      }, 3000);
+    }, 1000);
+  }
+}
+
+// プレイヤーがロボットに捕まった時の処理（修正版）
+function playerCaught() {
+  if (playerInvincible) return; // 無敵時間中は何もしない
+  
+  playerLives--;
+  document.getElementById("lives").innerText = playerLives;
+  
+  if (playerLives <= 0) {
+    // ゲームオーバー
+    gameState = "gameover";
+    document.getElementById("status").innerText = `💀 ゲームオーバー！ 💀`;
+    document.getElementById("status").style.color = "#FF0000";
+    document.getElementById("status").style.fontSize = "24px";
+    
+    showMessage(`💀 ゲームオーバー！ 💀`, 3000);
+    
+    // 5秒後にスタート画面に戻る
+    setTimeout(() => {
+      returnToStart();
+    }, 5000);
+  } else {
+    // ライフが残っている場合は無敵時間を開始
+    playerInvincible = true;
+    playerInvincibleTimer = 180; // 3秒間（60fps想定）
+    showMessage(`💔 ライフ残り ${playerLives}`, 2000);
+  }
+}
+
+// ロボットとの衝突をチェックする関数（無敵時間対応）
+function checkRobotCollision() {
+  if (playerInvincible) return; // 無敵時間中は衝突判定をスキップ
+  
+  robots.forEach(robot => {
+    if (!robot.inTornado && robot.x == Math.round(p.x) && robot.y == Math.round(p.z)) {
+      playerCaught();
+    }
+  });
+}
+
+// ロボットの距離計算
+function robotDistance(robot, x, y) {
+  return Math.abs(robot.x - x) + Math.abs(robot.y - y);
+}
+
+// ロボットの新しい目標を設定
+function setRobotTarget(robot) {
+  const candidates = [];
+  for (let x = 0; x < mapSize; x++) {
+    for (let y = 0; y < mapSize; y++) {
+      if (map[x][y] === 0 && robotDistance(robot, x, y) > 5) {
+        candidates.push({x, y});
+      }
+    }
+  }
+  
+  if (candidates.length > 0) {
+    const target = candidates[Math.floor(Math.random() * candidates.length)];
+    robot.targetX = target.x;
+    robot.targetY = target.y;
+  } else {
+    robot.targetX = null;
+    robot.targetY = null;
+  }
+}
+
+// ロボットの移動方向を決定する関数（完全に新しいアルゴリズム）
+function getRobotNextDirection(robot) {
+  const directions = [
+    { dx: 0, dy: -1, dir: 0 }, // 北
+    { dx: 1, dy: 0, dir: 1 },  // 東
+    { dx: 0, dy: 1, dir: 2 },  // 南
+    { dx: -1, dy: 0, dir: 3 }  // 西
+  ];
+  
+  // 目標がない場合、または目標に到達した場合は新しい目標を設定
+  if (robot.targetX === null || robot.targetY === null || 
+      (robot.x === robot.targetX && robot.y === robot.targetY)) {
+    setRobotTarget(robot);
+    robot.targetResetTimer = 0;
+  }
+  
+  // 目標に向かう方向を決定
+  if (robot.targetX !== null && robot.targetY !== null) {
+    const dx = robot.targetX - robot.x;
+    const dy = robot.targetY - robot.y;
+    
+    const possibleDirections = [];
+    
+    // X方向とY方向の優先度を決定
+    if (Math.abs(dx) > Math.abs(dy)) {
+      // X方向を優先
+      if (dx > 0) possibleDirections.push(1); // 東
+      if (dx < 0) possibleDirections.push(3); // 西
+      if (dy > 0) possibleDirections.push(2); // 南
+      if (dy < 0) possibleDirections.push(0); // 北
+    } else {
+      // Y方向を優先
+      if (dy > 0) possibleDirections.push(2); // 南
+      if (dy < 0) possibleDirections.push(0); // 北
+      if (dx > 0) possibleDirections.push(1); // 東
+      if (dx < 0) possibleDirections.push(3); // 西
+    }
+    
+    // 目標方向で移動可能かチェック（直前位置を避ける）
+    for (const dirIndex of possibleDirections) {
+      const dir = directions[dirIndex];
+      const newX = robot.x + dir.dx;
+      const newY = robot.y + dir.dy;
+      
+      if (canMoveTo(newX, newY) && 
+          !(newX === robot.lastX && newY === robot.lastY)) {
+        return dirIndex;
+      }
+    }
+  }
+  
+  // 目標方向に行けない場合は、移動可能な方向からランダム選択（直前位置を避ける）
+  const availableDirections = [];
+  for (let i = 0; i < directions.length; i++) {
+    const dir = directions[i];
+    const testX = robot.x + dir.dx;
+    const testY = robot.y + dir.dy;
+    
+    if (canMoveTo(testX, testY) && 
+        !(testX === robot.lastX && testY === robot.lastY)) {
+      availableDirections.push(i);
+    }
+  }
+  
+  if (availableDirections.length > 0) {
+    return availableDirections[Math.floor(Math.random() * availableDirections.length)];
+  }
+  
+  // どうしても動けない場合は直前位置に戻ることを許可
+  for (let i = 0; i < directions.length; i++) {
+    const dir = directions[i];
+    const testX = robot.x + dir.dx;
+    const testY = robot.y + dir.dy;
+    
+    if (canMoveTo(testX, testY)) {
+      return i;
+    }
+  }
+  
+  // 完全に動けない場合は反対方向
+  return (robot.direction + 2) % 4;
+}
+
+// 移動可能かチェックする関数
+function canMoveTo(x, z) {
+  // 境界チェック
+  if (x < 0 || x >= mapSize || z < 0 || z >= mapSize) return false;
+  // 壁チェック（map[x][z] == 0 が通路、1が壁）
+  return map[x][z] == 0;
+}
+
+// 2D表示を作成
+function create2DCanvas() {
+  canvas2D = document.createElement('canvas');
+  canvas2D.width = 400;
+  canvas2D.height = 400;
+  canvas2D.style.border = '2px solid #333';
+  canvas2D.style.display = 'none';
+  canvas2D.style.backgroundColor = '#f0f0f0';
+  ctx2D = canvas2D.getContext('2d');
+  document.getElementById("render2D").appendChild(canvas2D);
+}
+
+// マッピングエリアを作成
+function createMappingCanvas() {
+  canvasMapping = document.createElement('canvas');
+  canvasMapping.width = 300;
+  canvasMapping.height = 300;
+  canvasMapping.style.border = '2px solid #666';
+  canvasMapping.style.display = 'block'; // デフォルトで表示
+  canvasMapping.style.backgroundColor = '#2a2a2a';
+  ctxMapping = canvasMapping.getContext('2d');
+  document.getElementById("mappingArea").appendChild(canvasMapping);
+}
+
+// 2D表示を更新
+function update2D() {
+  if (!show2D) return;
+  
+  ctx2D.clearRect(0, 0, canvas2D.width, canvas2D.height);
+  
+  const scale = canvas2D.width / mapSize;
+  
+  // 迷路を描画
+  for (let x = 0; x < mapSize; x++) {
+    for (let y = 0; y < mapSize; y++) {
+      if (map[x][y] == 1) {
+        ctx2D.fillStyle = '#333';
+        ctx2D.fillRect(x * scale, y * scale, scale, scale);
+      } else if (map[x][y] == 0) {
+        ctx2D.fillStyle = '#fff';
+        ctx2D.fillRect(x * scale, y * scale, scale, scale);
+      }
+    }
+  }
+  
+  // 竜巻を描画（フェードアウト対応）
+  tornadoes.forEach(tornado => {
+    const fadeRatio = tornado.timer / tornado.maxTimer;
+    ctx2D.fillStyle = `rgba(135, 206, 235, ${0.8 * fadeRatio})`;
+    ctx2D.beginPath();
+    ctx2D.arc(tornado.x * scale + scale/2, tornado.y * scale + scale/2, scale/3, 0, 2 * Math.PI);
+    ctx2D.fill();
+  });
+  
+  // 宝箱を描画
+  treasures.forEach(treasure => {
+    if (treasure.found) {
+      // 開いた宝箱（金色の円）
+      ctx2D.fillStyle = '#FFD700';
+      ctx2D.beginPath();
+      ctx2D.arc(treasure.x * scale + scale/2, treasure.y * scale + scale/2, scale/3, 0, 2 * Math.PI);
+      ctx2D.fill();
+      // 中央に小さな宝石
+      ctx2D.fillStyle = '#FF4500';
+      ctx2D.beginPath();
+      ctx2D.arc(treasure.x * scale + scale/2, treasure.y * scale + scale/2, scale/8, 0, 2 * Math.PI);
+      ctx2D.fill();
+    } else {
+      // 閉じた宝箱（茶色の四角）
+      ctx2D.fillStyle = '#8B4513';
+      ctx2D.fillRect(treasure.x * scale + scale/4, treasure.y * scale + scale/4, scale/2, scale/2);
+    }
+  });
+  
+  // ロボットを描画（竜巻に入っている場合は色を変える）
+  robots.forEach(robot => {
+    if (robot.inTornado) {
+      ctx2D.fillStyle = '#FF8888'; // 竜巻に入っている場合は薄い赤
+    } else {
+      ctx2D.fillStyle = '#FF0000'; // 通常は赤
+    }
+    ctx2D.fillRect(robot.x * scale + scale/4, robot.y * scale + scale/4, scale/2, scale/2);
+  });
+  
+  // プレイヤーの位置を描画（無敵時間中は点滅）
+  if (playerInvincible && Math.floor(Date.now() / 100) % 2 === 0) {
+    ctx2D.fillStyle = '#8888FF'; // 無敵時間中は薄い青で点滅
+  } else {
+    ctx2D.fillStyle = '#0000FF'; // 通常は青
+  }
+  ctx2D.fillRect(p.x * scale + scale/3, p.z * scale + scale/3, scale/3, scale/3);
+  
+  // プレイヤーの向きを描画
+  ctx2D.strokeStyle = '#0000FF';
+  ctx2D.lineWidth = 3;
+  ctx2D.beginPath();
+  ctx2D.moveTo(p.x * scale + scale/2, p.z * scale + scale/2);
+  ctx2D.lineTo((p.x + f.x) * scale + scale/2, (p.z + f.z) * scale + scale/2);
+  ctx2D.stroke();
+}
+
+// マッピングエリアを更新
+function updateMapping() {
+  if (!showMapping) return;
+  
+  ctxMapping.clearRect(0, 0, canvasMapping.width, canvasMapping.height);
+  
+  const scale = canvasMapping.width / mapSize;
+  
+  // 訪問済みの通路のみを描画
+  for (let x = 0; x < mapSize; x++) {
+    for (let y = 0; y < mapSize; y++) {
+      const cellKey = `${x},${y}`;
+      if (visitedCells.has(cellKey) && map[x][y] == 0) {
+        ctxMapping.fillStyle = '#444';
+        ctxMapping.fillRect(x * scale, y * scale, scale, scale);
+        
+        // 周囲の壁を描画（訪問済みセルの隣接セルが壁の場合）
+        const directions = [[-1,0], [1,0], [0,-1], [0,1]];
+        directions.forEach(([dx, dy]) => {
+          const nx = x + dx;
+          const ny = y + dy;
+          if (nx >= 0 && nx < mapSize && ny >= 0 && ny < mapSize && map[nx][ny] == 1) {
+            ctxMapping.fillStyle = '#666';
+            ctxMapping.fillRect(nx * scale, ny * scale, scale, scale);
+          }
+        });
+      }
+    }
+  }
+  
+  // 訪問済みの竜巻を描画（フェードアウト対応）
+  tornadoes.forEach(tornado => {
+    const cellKey = `${tornado.x},${tornado.y}`;
+    if (visitedCells.has(cellKey)) {
+      const fadeRatio = tornado.timer / tornado.maxTimer;
+      ctxMapping.fillStyle = `rgba(135, 206, 235, ${0.8 * fadeRatio})`;
+      ctxMapping.beginPath();
+      ctxMapping.arc(tornado.x * scale + scale/2, tornado.y * scale + scale/2, scale/3, 0, 2 * Math.PI);
+      ctxMapping.fill();
+    }
+  });
+  
+  // 訪問済みの宝箱を描画
+  treasures.forEach(treasure => {
+    const cellKey = `${treasure.x},${treasure.y}`;
+    if (visitedCells.has(cellKey)) {
+      if (treasure.found) {
+        // 開いた宝箱（金色の円）
+        ctxMapping.fillStyle = '#FFD700';
+        ctxMapping.beginPath();
+        ctxMapping.arc(treasure.x * scale + scale/2, treasure.y * scale + scale/2, scale/3, 0, 2 * Math.PI);
+        ctxMapping.fill();
+      } else {
+        // 閉じた宝箱（茶色の四角）
+        ctxMapping.fillStyle = '#8B4513';
+        ctxMapping.fillRect(treasure.x * scale + scale/4, treasure.y * scale + scale/4, scale/2, scale/2);
+      }
+    }
+  });
+  
+  // 訪問済みエリアのロボットを描画（竜巻に入っている場合は色を変える）
+  robots.forEach(robot => {
+    const cellKey = `${robot.x},${robot.y}`;
+    if (visitedCells.has(cellKey)) {
+      if (robot.inTornado) {
+        ctxMapping.fillStyle = '#FF8888'; // 竜巻に入っている場合は薄い赤
+      } else {
+        ctxMapping.fillStyle = '#FF0000'; // 通常は赤
+      }
+      ctxMapping.fillRect(robot.x * scale + scale/4, robot.y * scale + scale/4, scale/2, scale/2);
+    }
+  });
+  
+  // プレイヤーの位置を描画（無敵時間中は点滅）
+  if (playerInvincible && Math.floor(Date.now() / 100) % 2 === 0) {
+    ctxMapping.fillStyle = '#8888FF'; // 無敵時間中は薄い青で点滅
+  } else {
+    ctxMapping.fillStyle = '#0000FF'; // 通常は青
+  }
+  ctxMapping.fillRect(p.x * scale + scale/3, p.z * scale + scale/3, scale/3, scale/3);
+  
+  // プレイヤーの向きを描画
+  ctxMapping.strokeStyle = '#0000FF';
+  ctxMapping.lineWidth = 2;
+  ctxMapping.beginPath();
+  ctxMapping.moveTo(p.x * scale + scale/2, p.z * scale + scale/2);
+  ctxMapping.lineTo((p.x + f.x) * scale + scale/2, (p.z + f.z) * scale + scale/2);
+  ctxMapping.stroke();
+}
+
+// 2D表示の切り替え
+function toggle2D() {
+  if (gameState !== "playing" && gameState !== "paused") return;
+  
+  show2D = !show2D;
+  if (show2D) {
+    canvas2D.style.display = 'block';
+    document.getElementById("render3D").style.display = 'none';
+    document.getElementById("viewMode").innerText = '3Dひょうじにきりかえ (H)';
+  } else {
+    canvas2D.style.display = 'none';
+    document.getElementById("render3D").style.display = 'block';
+    document.getElementById("viewMode").innerText = '2Dひょうじにきりかえ (H)';
+  }
+}
+
+// マッピング表示の切り替え
+function toggleMapping() {
+  if (gameState !== "playing" && gameState !== "paused") return;
+  
+  showMapping = !showMapping;
+  if (showMapping) {
+    canvasMapping.style.display = 'block';
+    document.getElementById("mappingMode").innerText = 'マッピングひひょうじ (M)';
+  } else {
+    canvasMapping.style.display = 'none';
+    document.getElementById("mappingMode").innerText = 'マッピングひょうじ (M)';
+  }
+}
+
+window.onload = async () => {
+  try {
+    // シーン、レンダラー、カメラ、ライト
+    scene = new THREE.Scene();
+    renderer = new THREE.WebGLRenderer({antialias: true});
+    renderer.setSize(width,height);
+    document.getElementById("render3D").appendChild(renderer.domElement);
+    
+    camera = new THREE.PerspectiveCamera(60,width/height,1,5000);
+    light = new THREE.PointLight("#FFFFFF",1200,0,1);
+    scene.add(light);
+    
+    // 環境光を追加（宝箱をよく見えるようにする）
+    const ambientLight = new THREE.AmbientLight("#404040", 0.4);
+    scene.add(ambientLight);
+
+    // 2D表示を作成
+    create2DCanvas();
+    
+    // マッピングエリアを作成
+    createMappingCanvas();
+
+    // スタートボタンのイベントリスナー
+    document.getElementById("startButton").addEventListener("click", startGame);
+
+    // Touch control buttons - エラーハンドリング追加
+    const touchButtons = [
+      { id: "btnUp", key: "ArrowUp" },
+      { id: "btnRight", key: "ArrowRight" },
+      { id: "btnLeft", key: "ArrowLeft" },
+      { id: "btnDown", key: "ArrowDown" }
+    ];
+
+    touchButtons.forEach(button => {
+      const element = document.getElementById(button.id);
+      if (element) {
+        element.addEventListener("click", () => {
+          const event = new KeyboardEvent('keydown', {key: button.key});
+          document.dispatchEvent(event);
+        });
+      }
+    });
+
+    // キーボード操作（画面スクロール防止対応）
+    document.addEventListener("keydown", event => {
+      // 矢印キー、H、M、Pキーの場合はデフォルトの動作を防ぐ
+      if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.key) || 
+          event.key.toLowerCase() === "h" || event.key.toLowerCase() === "m" || 
+          event.key.toLowerCase() === "p") {
+        event.preventDefault();
+      }
+      
+      if (gameState === "playing" && status == "ready" && !isRotating && !isMoving) {
+        // 右矢印キー（⇒）で右を向く（反時計回り）
+        if (event.key == "ArrowRight") {
+          targetRotation = currentRotation + Math.PI/2;
+          isRotating = true;
+          status = "rotating";
+        }
+        // 左矢印キー（⇦）で左を向く（時計回り）
+        if (event.key == "ArrowLeft") {
+          targetRotation = currentRotation - Math.PI/2;
+          isRotating = true;
+          status = "rotating";
+        }
+        if (event.key == "ArrowUp") {
+          // 移動先の座標を計算
+          const nextX = Math.round(p.x + f.x);
+          const nextZ = Math.round(p.z + f.z);
+          
+          // 移動可能かチェック
+          if (canMoveTo(nextX, nextZ)) {
+            moveStartPos.copy(p);
+            moveTargetPos.set(nextX, p.y, nextZ);
+            isMoving = true;
+            status = "moving";
+          }
+        }
+        // 竜巻を起こす（↓キー）
+        if (event.key == "ArrowDown") {
+          createTornado(Math.round(p.x), Math.round(p.z));
+        }
+      }
+      
+      // 2D表示切り替え（Hキー）
+      if (event.key.toLowerCase() == "h") {
+        toggle2D();
+      }
+      
+      // マッピング表示切り替え（Mキー）
+      if (event.key.toLowerCase() == "m") {
+        toggleMapping();
+      }
+      
+      // 一時停止切り替え（Pキー）
+      if (event.key.toLowerCase() == "p") {
+        togglePause();
+      }
+    });
+
+    update();
+  } catch (error) {
+    console.error("ゲームの初期化中にエラーが発生しました:", error);
+  }
+}
+
+const dig = (x,y) => {
+  map[x][y] = 0;
+  const dir = [[-1,0],[1,0],[0,-1],[0,1]];
+  for (let i=dir.length-1; i>=0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [dir[i],dir[j]] = [dir[j],dir[i]];
+  }
+  for (let i=0; i<dir.length; i++) {
+    const [dx,dy] = dir[i];
+    const [tx1,ty1,tx2,ty2] = [x+dx,y+dy,x+dx*2,y+dy*2];
+    if (tx1 >= 0 && tx1 < mapSize && ty1 >= 0 && ty1 < mapSize &&
+        tx2 >= 0 && tx2 < mapSize && ty2 >= 0 && ty2 < mapSize &&
+        (map[tx1][ty1] == 1)&&(map[tx2][ty2] == 1)) {
+      map[tx1][ty1] = 0;
+      dig(tx2,ty2);
+    }
+  }
+}
+
+const update = () => {
+  if (gameState !== "playing") {
+    renderer.render(scene,camera);
+    window.requestAnimationFrame(update);
+    return;
+  }
+  
+  // 無敵時間の処理
+  if (playerInvincible) {
+    playerInvincibleTimer--;
+    if (playerInvincibleTimer <= 0) {
+      playerInvincible = false;
+    }
+  }
+  
+  // 回転処理
+  if (status == "rotating" && isRotating) {
+    const rotationSpeed = Math.PI/40;
+    const diff = targetRotation - currentRotation;
+    
+    if (Math.abs(diff) > rotationSpeed) {
+      currentRotation += Math.sign(diff) * rotationSpeed;
+      // 方向ベクトルを更新
+      f.x = Math.cos(currentRotation);
+      f.z = Math.sin(currentRotation);
+    } else {
+      currentRotation = targetRotation;
+      f.x = Math.cos(currentRotation);
+      f.z = Math.sin(currentRotation);
+      isRotating = false;
+      status = "ready";
+    }
+  }
+  
+  // 移動処理
+  if (status == "moving" && isMoving) {
+    const moveSpeed = 0.05; // 移動速度
+    const direction = new THREE.Vector3().subVectors(moveTargetPos, p);
+    const distance = direction.length();
+    
+    if (distance > moveSpeed) {
+      // まだ移動中
+      direction.normalize();
+      p.addScaledVector(direction, moveSpeed);
+    } else {
+      // 移動完了
+      p.copy(moveTargetPos);
+      isMoving = false;
+      status = "ready";
+      
+      // 訪問済みセルに追加
+      visitedCells.add(`${p.x},${p.z}`);
+      
+      // 現在位置の宝箱をチェック
+      treasures.forEach(treasure => {
+        if (treasure.x == p.x && treasure.y == p.z && !treasure.found) {
+          findTreasure(treasure);
+        }
+      });
+      
+      // ロボットとの衝突をチェック（移動完了時）
+      checkRobotCollision();
+    }
+  }
+  
+  // 毎フレームロボットとの衝突をチェック
+  checkRobotCollision();
+  
+  // ロボットの移動処理
+  robots.forEach(robot => {
+    robot.moveTimer++;
+    robot.targetResetTimer++;
+    
+    // 長時間同じ目標の場合はリセット
+    if (robot.targetResetTimer > 300) { // 5秒
+      robot.targetX = null;
+      robot.targetY = null;
+      robot.targetResetTimer = 0;
+    }
+    
+    if (robot.moveTimer >= robot.moveInterval) {
+      robot.moveTimer = 0;
+      robot.moveInterval = 10 + Math.random() * 10; // より頻繁に移動
+      
+      // 新しい移動方向を決定
+      const newDirection = getRobotNextDirection(robot);
+      robot.direction = newDirection;
+      
+      const directions = [
+        { dx: 0, dy: -1 }, // 北
+        { dx: 1, dy: 0 },  // 東
+        { dx: 0, dy: 1 },  // 南
+        { dx: -1, dy: 0 }  // 西
+      ];
+      
+      const dir = directions[robot.direction];
+      const newX = robot.x + dir.dx;
+      const newY = robot.y + dir.dy;
+      
+      // 移動可能かチェック
+      if (canMoveTo(newX, newY)) {
+        // 竜巻に入るかチェック
+        const tornado = tornadoes.find(t => t.x === newX && t.y === newY);
+        if (tornado) {
+          // ロボットが竜巻に入った場合、回転アニメーションを開始
+          robot.inTornado = true;
+          robot.tornadoTimer = 60; // 1秒間回転
+          robot.rotationSpeed = 0.2;
+        } else {
+          // 通常の移動
+          robot.lastX = robot.x;
+          robot.lastY = robot.y;
+          robot.x = newX;
+          robot.y = newY;
+          robot.group.position.set(newX * w, 0, newY * w);
+          robot.stuckCounter = 0;
+        }
+      } else {
+        robot.stuckCounter++;
+        if (robot.stuckCounter > 5) {
+          // 長時間動けない場合は目標をリセット
+          robot.targetX = null;
+          robot.targetY = null;
+          robot.stuckCounter = 0;
+          robot.targetResetTimer = 0;
+        }
+      }
+    }
+    
+    // 竜巻に入ったロボットの処理
+    if (robot.inTornado) {
+      robot.group.rotation.y += robot.rotationSpeed;
+      robot.rotationSpeed += 0.01; // 回転速度を上げる
+      robot.tornadoTimer--;
+      
+      if (robot.tornadoTimer <= 0) {
+        // ロボットを削除
+        scene.remove(robot.group);
+        const robotIndex = robots.indexOf(robot);
+        robots.splice(robotIndex, 1);
+        
+        // 新しいロボットを必ず生成
+        setTimeout(() => {
+          forceCreateRobot();
+        }, 1000); // 1秒後に復活
+      }
+    }
+  });
+  
+  // 竜巻の処理（フェードアウト対応）
+  tornadoes.forEach((tornado, index) => {
+    tornado.timer--;
+    tornado.group.rotation.y += tornado.rotationSpeed;
+    
+    // フェードアウト効果
+    const fadeRatio = tornado.timer / tornado.maxTimer;
+    tornado.parts.forEach((part, partIndex) => {
+      const baseOpacity = 0.6 - partIndex * 0.05;
+      part.material.opacity = baseOpacity * fadeRatio;
+    });
+    
+    if (tornado.timer <= 0) {
+      // 竜巻を削除
+      scene.remove(tornado.group);
+      tornadoes.splice(index, 1);
+    }
+  });
+  
+  // 宝箱のアニメーション
+  treasures.forEach(treasure => {
+    if (!treasure.found) {
+      // 未発見の宝箱は回転
+      treasure.group.rotation.y += 0.01;
+    } else {
+      // 見つけた宝箱は上下に浮遊
+      treasure.group.position.y = w/4 + Math.sin(Date.now() * 0.003) * 10;
+      
+      // 宝箱の中身（金貨）も回転
+      if (treasure.treasure) {
+        treasure.treasure.rotation.y += 0.02;
+      }
+    }
+  });
+
+  // ロボットのアニメーション
+  robots.forEach(robot => {
+    if (!robot.inTornado) {
+      robot.group.rotation.y += 0.01;
+    }
+  });
+
+  camera.position.set((p.x-f.x/2)*w,0,(p.z-f.z/2)*w);
+  camera.lookAt((p.x+f.x)*w,0,(p.z+f.z)*w);
+  light.position.copy(camera.position);
+
+  // 2D表示を更新
+  update2D();
+
+  // マッピング表示を更新
+  updateMapping();
+
+  renderer.render(scene,camera);
+  window.requestAnimationFrame(update);
+}
+</script>
+<style>
+body {
+  margin: 0;
+  padding: 10px;
+  font-family: Arial, sans-serif;
+  background-color: #f0f0f0;
+}
+
+#gameContainer {
+  display: flex;
+  gap: 20px;
+  justify-content: center;
+  align-items: flex-start;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+#mainArea {
+  flex: 1;
+  max-width: 800px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+#sideArea {
+  width: 320px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+#render3D, #render2D {
+  border: 2px solid #333;
+  display: block;
+  margin: 0 auto;
+  max-width: 100%;
+  height: auto;
+}
+
+#mappingArea {
+  padding: 15px;
+  background-color: #f5f5f5;
+  border-radius: 8px;
+  border: 2px solid #ccc;
+  text-align: center;
+}
+
+#mappingArea h3 {
+  margin: 0 0 15px 0;
+  font-size: 16px;
+  color: #333;
+}
+
+#gameInfo {
+  font-family: Arial, sans-serif;
+  margin: 10px 0;
+  padding: 15px;
+  background-color: #f0f0f0;
+  border-radius: 8px;
+  border: 2px solid #ddd;
+}
+
+#hunterUI {
+  background-color: #ffe6e6;
+  padding: 15px;
+  border-radius: 8px;
+  margin: 10px 0;
+  border: 2px solid #ff9999;
+}
+
+#status {
+  font-weight: bold;
+  margin: 10px 0;
+  color: #333;
+  text-align: center;
+}
+
+.treasure-info, .hunter-info {
+  display: inline-block;
+  margin: 0 15px;
+  font-size: 16px;
+}
+
+.hunter-info {
+  color: #cc0000;
+  font-weight: bold;
+}
+
+.controls {
+  margin: 10px 0;
+  padding: 15px;
+  background-color: #e8e8e8;
+  border-radius: 8px;
+  border: 2px solid #ccc;
+  font-size: 14px;
+}
+
+/* スマホ対応のスタイル */
+@media (max-width: 600px) {
+  body {
+    padding: 5px;
+  }
+  
+  #gameContainer {
+    flex-direction: column;
+    align-items: center;
+    gap: 15px;
+  }
+  
+  #sideArea {
+    width: 100%;
+    max-width: 400px;
+    order: -1; /* マッピングエリアを上に配置 */
+  }
+  
+  #mainArea {
+    width: 100%;
+    max-width: 400px;
+  }
+  
+  #mappingArea {
+    width: 100%;
+    margin-bottom: 15px;
+  }
+  
+  #mappingArea canvas {
+    max-width: 100%;
+    height: auto;
+  }
+  
+  #render3D, #render2D {
+    width: 100%;
+    max-width: 100%;
+    height: auto;
+  }
+  
+  #gameInfo, #hunterUI {
+    padding: 10px;
+    margin: 10px 0;
+  }
+  
+  .treasure-info, .hunter-info {
+    display: block;
+    margin: 5px 0;
+    font-size: 14px;
+  }
+  
+  .controls {
+    font-size: 12px;
+    padding: 10px;
+  }
+  
+  /* タッチボタン用のスタイル */
+  #touchControls {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin-top: 20px;
+    gap: 10px;
+    width: 100%;
+  }
+  
+  #touchControls .control-row {
+    display: flex;
+    gap: 15px;
+    justify-content: center;
+  }
+  
+  .touch-button {
+    width: 70px;
+    height: 70px;
+    font-size: 28px;
+    border: 3px solid #333;
+    border-radius: 15px;
+    background-color: #f0f0f0;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    user-select: none;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+    transition: all 0.1s ease;
+    font-weight: bold;
+    color: #333;
+  }
+  
+  .touch-button:active {
+    background-color: #ddd;
+    transform: scale(0.95);
+  }
+  
+  .touch-button:hover {
+    background-color: #e0e0e0;
+  }
+  
+  /* 特定のボタンの色分け */
+  #btnUp {
+    background-color: #e3f2fd;
+    border-color: #1976d2;
+  }
+  
+  #btnDown {
+    background-color: #fff3e0;
+    border-color: #f57c00;
+  }
+  
+  #btnLeft, #btnRight {
+    background-color: #f3e5f5;
+    border-color: #7b1fa2;
+  }
+}
+
+/* デスクトップでタッチボタンを非表示 */
+@media (min-width: 601px) {
+  #touchControls {
+    display: none;
+  }
+}
+
+#viewMode, #mappingMode {
+  margin: 8px 0;
+  padding: 12px 16px;
+  background-color: #4CAF50;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  width: 100%;
+  transition: background-color 0.2s;
+}
+
+#viewMode:hover, #mappingMode:hover {
+  background-color: #45a049;
+}
+
+#mappingMode {
+  background-color: #2196F3;
+}
+
+#mappingMode:hover {
+  background-color: #1976D2;
+}
+
 /* スタート画面のスタイル */
 #startScreen {
   text-align: center;
