@@ -1486,7 +1486,7 @@ body {
   font-size: 14px;
 }
 
-/* タッチボタンをダンジョンウィンドウに重ねる */
+/* タッチボタンをダンジョンウィンドウに重ねる - 大きなサイズ */
 #touchControls {
   position: absolute;
   bottom: 20px;
@@ -1494,24 +1494,24 @@ body {
   display: none; /* デフォルトは非表示 */
   flex-direction: column;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   z-index: 1000;
   pointer-events: none; /* コンテナ自体はクリック無効 */
 }
 
 #touchControls .control-row {
   display: flex;
-  gap: 8px;
+  gap: 10px;
   justify-content: center;
 }
 
 .touch-button {
-  width: 60px;
-  height: 60px;
-  font-size: 24px;
-  border: 3px solid #333;
-  border-radius: 12px;
-  background-color: rgba(240, 240, 240, 0.9);
+  width: 80px;  /* 60px から 80px に拡大 */
+  height: 80px; /* 60px から 80px に拡大 */
+  font-size: 32px; /* 24px から 32px に拡大 */
+  border: 4px solid #333; /* 3px から 4px に拡大 */
+  border-radius: 16px; /* 12px から 16px に拡大 */
+  background-color: rgba(240, 240, 240, 0.95); /* 透明度を少し上げる */
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -1524,32 +1524,32 @@ body {
   font-weight: bold;
   color: #333;
   pointer-events: auto; /* ボタン自体はクリック有効 */
-  backdrop-filter: blur(5px);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(8px); /* ぼかし効果を強化 */
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4); /* 影を強化 */
 }
 
 .touch-button:active {
-  background-color: rgba(200, 200, 200, 0.9);
-  transform: scale(0.95);
+  background-color: rgba(200, 200, 200, 0.95);
+  transform: scale(0.92); /* 押下時の縮小を少し大きく */
 }
 
 .touch-button:hover {
-  background-color: rgba(220, 220, 220, 0.9);
+  background-color: rgba(220, 220, 220, 0.95);
 }
 
 /* 特定のボタンの色分け */
 #btnUp {
-  background-color: rgba(227, 242, 253, 0.9);
+  background-color: rgba(227, 242, 253, 0.95);
   border-color: #1976d2;
 }
 
 #btnDown {
-  background-color: rgba(255, 243, 224, 0.9);
+  background-color: rgba(255, 243, 224, 0.95);
   border-color: #f57c00;
 }
 
 #btnLeft, #btnRight {
-  background-color: rgba(243, 229, 245, 0.9);
+  background-color: rgba(243, 229, 245, 0.95);
   border-color: #7b1fa2;
 }
 
@@ -1609,7 +1609,7 @@ body {
     padding: 10px;
   }
   
-  /* タッチボタンをダンジョンウィンドウに重ねる */
+  /* タッチボタンをダンジョンウィンドウに重ねる - 大きなサイズ */
   #touchControls {
     position: absolute;
     bottom: 20px;
@@ -1617,24 +1617,24 @@ body {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
     z-index: 1000;
     pointer-events: none; /* コンテナ自体はクリック無効 */
   }
   
   #touchControls .control-row {
     display: flex;
-    gap: 8px;
+    gap: 10px;
     justify-content: center;
   }
   
   .touch-button {
-    width: 60px;
-    height: 60px;
-    font-size: 24px;
-    border: 3px solid #333;
-    border-radius: 12px;
-    background-color: rgba(240, 240, 240, 0.9);
+    width: 80px;  /* 60px から 80px に拡大 */
+    height: 80px; /* 60px から 80px に拡大 */
+    font-size: 32px; /* 24px から 32px に拡大 */
+    border: 4px solid #333; /* 3px から 4px に拡大 */
+    border-radius: 16px; /* 12px から 16px に拡大 */
+    background-color: rgba(240, 240, 240, 0.95); /* 透明度を少し上げる */
     cursor: pointer;
     display: flex;
     align-items: center;
@@ -1647,32 +1647,32 @@ body {
     font-weight: bold;
     color: #333;
     pointer-events: auto; /* ボタン自体はクリック有効 */
-    backdrop-filter: blur(5px);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    backdrop-filter: blur(8px); /* ぼかし効果を強化 */
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4); /* 影を強化 */
   }
   
   .touch-button:active {
-    background-color: rgba(200, 200, 200, 0.9);
-    transform: scale(0.95);
+    background-color: rgba(200, 200, 200, 0.95);
+    transform: scale(0.92); /* 押下時の縮小を少し大きく */
   }
   
   .touch-button:hover {
-    background-color: rgba(220, 220, 220, 0.9);
+    background-color: rgba(220, 220, 220, 0.95);
   }
   
   /* 特定のボタンの色分け */
   #btnUp {
-    background-color: rgba(227, 242, 253, 0.9);
+    background-color: rgba(227, 242, 253, 0.95);
     border-color: #1976d2;
   }
   
   #btnDown {
-    background-color: rgba(255, 243, 224, 0.9);
+    background-color: rgba(255, 243, 224, 0.95);
     border-color: #f57c00;
   }
   
   #btnLeft, #btnRight {
-    background-color: rgba(243, 229, 245, 0.9);
+    background-color: rgba(243, 229, 245, 0.95);
     border-color: #7b1fa2;
   }
 }
