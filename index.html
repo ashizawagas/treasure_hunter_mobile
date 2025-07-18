@@ -82,7 +82,9 @@ function initializeGame() {
   
   // 既存の宝箱を削除
   treasures.forEach(treasure => {
-    scene.remove(treasure.group);
+    if (treasure.group && scene) {
+      scene.remove(treasure.group);
+    }
   });
   treasures = [];
   foundTreasures = 0;
@@ -91,13 +93,17 @@ function initializeGame() {
   
   // 既存のロボットを削除
   robots.forEach(robot => {
-    scene.remove(robot.group);
+    if (robot.group && scene) {
+      scene.remove(robot.group);
+    }
   });
   robots = [];
   
   // 既存の竜巻を削除
   tornadoes.forEach(tornado => {
-    scene.remove(tornado.group);
+    if (tornado.group && scene) {
+      scene.remove(tornado.group);
+    }
   });
   tornadoes = [];
   
@@ -122,15 +128,24 @@ function initializeGame() {
   if (canvas2D) {
     canvas2D.style.display = 'none';
   }
-  document.getElementById("render3D").style.display = 'block';
-  document.getElementById("viewMode").innerText = '2Dひょうじにきりかえ (H)';
+  const render3D = document.getElementById("render3D");
+  if (render3D) {
+    render3D.style.display = 'block';
+  }
+  const viewMode = document.getElementById("viewMode");
+  if (viewMode) {
+    viewMode.innerText = '2Dひょうじにきりかえ (H)';
+  }
   
   // マッピングエリアをデフォルトで表示
   showMapping = true;
   if (canvasMapping) {
     canvasMapping.style.display = 'block';
   }
-  document.getElementById("mappingMode").innerText = 'マッピングひひょうじ (M)';
+  const mappingMode = document.getElementById("mappingMode");
+  if (mappingMode) {
+    mappingMode.innerText = 'マッピングひひょうじ (M)';
+  }
   
   // 迷路を再生成
   generateMaze();
@@ -139,15 +154,27 @@ function initializeGame() {
   createRobots();
   
   // UI更新
-  document.getElementById("total").innerText = totalTreasures;
-  document.getElementById("found").innerText = foundTreasures;
-  document.getElementById("status").innerText = "ロボットをさけてたからばこをあつめよう！";
-  document.getElementById("status").style.color = "#333";
-  document.getElementById("status").style.fontSize = "16px";
+  const totalElement = document.getElementById("total");
+  if (totalElement) totalElement.innerText = totalTreasures;
   
-  document.getElementById("lives").innerText = playerLives;
-  document.getElementById("stage").innerText = currentStage;
-  document.getElementById("robotCount").innerText = getRobotCount(currentStage);
+  const foundElement = document.getElementById("found");
+  if (foundElement) foundElement.innerText = foundTreasures;
+  
+  const statusElement = document.getElementById("status");
+  if (statusElement) {
+    statusElement.innerText = "ロボットをさけてたからばこをあつめよう！";
+    statusElement.style.color = "#333";
+    statusElement.style.fontSize = "16px";
+  }
+  
+  const livesElement = document.getElementById("lives");
+  if (livesElement) livesElement.innerText = playerLives;
+  
+  const stageElement = document.getElementById("stage");
+  if (stageElement) stageElement.innerText = currentStage;
+  
+  const robotCountElement = document.getElementById("robotCount");
+  if (robotCountElement) robotCountElement.innerText = getRobotCount(currentStage);
 }
 
 // 迷路を生成する関数
@@ -155,10 +182,12 @@ function generateMaze() {
   const settings = { size: 19, startPos: [9, 9], digPos: [16, 16] };
   
   // 既存の壁を削除
-  scene.children = scene.children.filter(child => 
-    child.type !== 'Mesh' || !child.material || 
-    (child.material.color.getHex() !== 0xFFFFF0 && child.material.color.getHex() !== 0x8B4513)
-  );
+  if (scene) {
+    scene.children = scene.children.filter(child => 
+      child.type !== 'Mesh' || !child.material || 
+      (child.material.color && child.material.color.getHex() !== 0xFFFFF0 && child.material.color.getHex() !== 0x8B4513)
+    );
+  }
   
   // 迷路を初期化
   for (let x=0; x<mapSize; x++) {
@@ -197,7 +226,7 @@ function generateMaze() {
   }
 
   // 迷路の壁を作成
-  if (blocks.length > 0) {
+  if (blocks.length > 0 && scene) {
     const geometry = BufferGeometryUtils.mergeGeometries(blocks);
     const material = new THREE.MeshPhongMaterial({color: "#FFFFF0"});
     const mesh = new THREE.Mesh(geometry,material);
@@ -319,7 +348,9 @@ function createRobot(x, y) {
   };
   
   robots.push(robotData);
-  scene.add(robotGroup);
+  if (scene) {
+    scene.add(robotGroup);
+  }
   
   return robotData;
 }
@@ -367,7 +398,9 @@ function createTornado(x, y) {
   };
   
   tornadoes.push(tornadoData);
-  scene.add(tornadoGroup);
+  if (scene) {
+    scene.add(tornadoGroup);
+  }
 }
 
 // ランダムな通路の座標を取得（改良版）
@@ -436,6 +469,8 @@ function forceCreateRobot() {
 
 // ゲームを開始する関数
 function startGame() {
+  console.log("ゲーム開始処理を実行中...");
+  
   gameState = "playing";
   status = "ready";
   
@@ -444,24 +479,40 @@ function startGame() {
   currentStage = 1;
   
   // スタート画面を非表示
-  document.getElementById("startScreen").style.display = 'none';
-  document.getElementById("gameScreen").style.display = 'block';
+  const startScreen = document.getElementById("startScreen");
+  if (startScreen) {
+    startScreen.style.display = 'none';
+  }
+  
+  // ゲーム画面を表示
+  const gameScreen = document.getElementById("gameScreen");
+  if (gameScreen) {
+    gameScreen.style.display = 'block';
+  }
   
   // ゲームを初期化
   initializeGame();
+  
+  console.log("ゲーム開始処理完了");
 }
 
 // ゲームを一時停止/再開する関数
 function togglePause() {
   if (gameState === "playing") {
     gameState = "paused";
-    document.getElementById("status").innerText = "⏸️ いちじていし - Pキーでさいかい";
-    document.getElementById("status").style.color = "#FF8C00";
+    const statusElement = document.getElementById("status");
+    if (statusElement) {
+      statusElement.innerText = "⏸️ いちじていし - Pキーでさいかい";
+      statusElement.style.color = "#FF8C00";
+    }
     showMessage("⏸️ ゲームを一時停止しました", 2000);
   } else if (gameState === "paused") {
     gameState = "playing";
-    document.getElementById("status").innerText = "ロボットをさけてたからばこをあつめよう！";
-    document.getElementById("status").style.color = "#333";
+    const statusElement = document.getElementById("status");
+    if (statusElement) {
+      statusElement.innerText = "ロボットをさけてたからばこをあつめよう！";
+      statusElement.style.color = "#333";
+    }
     showMessage("▶️ ゲームを再開しました", 2000);
   }
 }
@@ -472,8 +523,16 @@ function returnToStart() {
   status = "start";
   
   // ゲーム画面を非表示
-  document.getElementById("gameScreen").style.display = 'none';
-  document.getElementById("startScreen").style.display = 'block';
+  const gameScreen = document.getElementById("gameScreen");
+  if (gameScreen) {
+    gameScreen.style.display = 'none';
+  }
+  
+  // スタート画面を表示
+  const startScreen = document.getElementById("startScreen");
+  if (startScreen) {
+    startScreen.style.display = 'block';
+  }
   
   // メッセージを削除
   if (messageElement) {
@@ -527,7 +586,9 @@ function createTreasureBox(x, y) {
   };
   
   treasures.push(treasureData);
-  scene.add(treasureGroup);
+  if (scene) {
+    scene.add(treasureGroup);
+  }
   
   return treasureData;
 }
@@ -651,8 +712,11 @@ function findTreasure(treasure) {
   }, 500);
   
   // UI更新
-  document.getElementById("found").innerText = foundTreasures;
-  document.getElementById("total").innerText = totalTreasures;
+  const foundElement = document.getElementById("found");
+  if (foundElement) foundElement.innerText = foundTreasures;
+  
+  const totalElement = document.getElementById("total");
+  if (totalElement) totalElement.innerText = totalTreasures;
   
   // 全ての宝箱を見つけた場合
   if (foundTreasures >= totalTreasures && !gameCleared) {
@@ -660,9 +724,12 @@ function findTreasure(treasure) {
     
     // 次のステージへ
     currentStage++;
-    document.getElementById("status").innerText = `🎉 ステージ ${currentStage - 1} クリア！ 🎉`;
-    document.getElementById("status").style.color = "#FFD700";
-    document.getElementById("status").style.fontSize = "24px";
+    const statusElement = document.getElementById("status");
+    if (statusElement) {
+      statusElement.innerText = `🎉 ステージ ${currentStage - 1} クリア！ 🎉`;
+      statusElement.style.color = "#FFD700";
+      statusElement.style.fontSize = "24px";
+    }
     
     setTimeout(() => {
       showMessage(`🏆 ステージ ${currentStage - 1} クリア！次のステージへ！ 🏆`, 3000);
@@ -685,14 +752,18 @@ function playerCaught() {
   if (playerInvincible) return; // 無敵時間中は何もしない
   
   playerLives--;
-  document.getElementById("lives").innerText = playerLives;
+  const livesElement = document.getElementById("lives");
+  if (livesElement) livesElement.innerText = playerLives;
   
   if (playerLives <= 0) {
     // ゲームオーバー
     gameState = "gameover";
-    document.getElementById("status").innerText = `💀 ゲームオーバー！ 💀`;
-    document.getElementById("status").style.color = "#FF0000";
-    document.getElementById("status").style.fontSize = "24px";
+    const statusElement = document.getElementById("status");
+    if (statusElement) {
+      statusElement.innerText = `💀 ゲームオーバー！ 💀`;
+      statusElement.style.color = "#FF0000";
+      statusElement.style.fontSize = "24px";
+    }
     
     showMessage(`💀 ゲームオーバー！ 💀`, 3000);
     
@@ -845,7 +916,10 @@ function create2DCanvas() {
   canvas2D.style.display = 'none';
   canvas2D.style.backgroundColor = '#f0f0f0';
   ctx2D = canvas2D.getContext('2d');
-  document.getElementById("render2D").appendChild(canvas2D);
+  const render2D = document.getElementById("render2D");
+  if (render2D) {
+    render2D.appendChild(canvas2D);
+  }
 }
 
 // マッピングエリアを作成
@@ -857,12 +931,15 @@ function createMappingCanvas() {
   canvasMapping.style.display = 'block'; // デフォルトで表示
   canvasMapping.style.backgroundColor = '#2a2a2a';
   ctxMapping = canvasMapping.getContext('2d');
-  document.getElementById("mappingArea").appendChild(canvasMapping);
+  const mappingArea = document.getElementById("mappingArea");
+  if (mappingArea) {
+    mappingArea.appendChild(canvasMapping);
+  }
 }
 
 // 2D表示を更新
 function update2D() {
-  if (!show2D) return;
+  if (!show2D || !ctx2D) return;
   
   ctx2D.clearRect(0, 0, canvas2D.width, canvas2D.height);
   
@@ -939,7 +1016,7 @@ function update2D() {
 
 // マッピングエリアを更新
 function updateMapping() {
-  if (!showMapping) return;
+  if (!showMapping || !ctxMapping) return;
   
   ctxMapping.clearRect(0, 0, canvasMapping.width, canvasMapping.height);
   
@@ -1033,13 +1110,17 @@ function toggle2D() {
   
   show2D = !show2D;
   if (show2D) {
-    canvas2D.style.display = 'block';
-    document.getElementById("render3D").style.display = 'none';
-    document.getElementById("viewMode").innerText = '3Dひょうじにきりかえ (H)';
+    if (canvas2D) canvas2D.style.display = 'block';
+    const render3D = document.getElementById("render3D");
+    if (render3D) render3D.style.display = 'none';
+    const viewMode = document.getElementById("viewMode");
+    if (viewMode) viewMode.innerText = '3Dひょうじにきりかえ (H)';
   } else {
-    canvas2D.style.display = 'none';
-    document.getElementById("render3D").style.display = 'block';
-    document.getElementById("viewMode").innerText = '2Dひょうじにきりかえ (H)';
+    if (canvas2D) canvas2D.style.display = 'none';
+    const render3D = document.getElementById("render3D");
+    if (render3D) render3D.style.display = 'block';
+    const viewMode = document.getElementById("viewMode");
+    if (viewMode) viewMode.innerText = '2Dひょうじにきりかえ (H)';
   }
 }
 
@@ -1049,21 +1130,36 @@ function toggleMapping() {
   
   showMapping = !showMapping;
   if (showMapping) {
-    canvasMapping.style.display = 'block';
-    document.getElementById("mappingMode").innerText = 'マッピングひひょうじ (M)';
+    if (canvasMapping) canvasMapping.style.display = 'block';
+    const mappingMode = document.getElementById("mappingMode");
+    if (mappingMode) mappingMode.innerText = 'マッピングひひょうじ (M)';
   } else {
-    canvasMapping.style.display = 'none';
-    document.getElementById("mappingMode").innerText = 'マッピングひょうじ (M)';
+    if (canvasMapping) canvasMapping.style.display = 'none';
+    const mappingMode = document.getElementById("mappingMode");
+    if (mappingMode) mappingMode.innerText = 'マッピングひょうじ (M)';
   }
 }
 
-window.onload = async () => {
+// グローバル関数として定義
+window.toggle2D = toggle2D;
+window.toggleMapping = toggleMapping;
+
+// DOMContentLoadedイベントを使用してより確実に初期化
+document.addEventListener('DOMContentLoaded', async () => {
+  console.log("DOM読み込み完了");
+  
   try {
     // シーン、レンダラー、カメラ、ライト
     scene = new THREE.Scene();
     renderer = new THREE.WebGLRenderer({antialias: true});
     renderer.setSize(width,height);
-    document.getElementById("render3D").appendChild(renderer.domElement);
+    
+    const render3D = document.getElementById("render3D");
+    if (render3D) {
+      render3D.appendChild(renderer.domElement);
+    } else {
+      console.error("render3D要素が見つかりません");
+    }
     
     camera = new THREE.PerspectiveCamera(60,width/height,1,5000);
     light = new THREE.PointLight("#FFFFFF",1200,0,1);
@@ -1079,8 +1175,18 @@ window.onload = async () => {
     // マッピングエリアを作成
     createMappingCanvas();
 
-    // スタートボタンのイベントリスナー
-    document.getElementById("startButton").addEventListener("click", startGame);
+    // スタートボタンのイベントリスナー - エラーハンドリング強化
+    const startButton = document.getElementById("startButton");
+    if (startButton) {
+      console.log("スタートボタンが見つかりました");
+      startButton.addEventListener("click", (e) => {
+        console.log("スタートボタンがクリックされました");
+        e.preventDefault();
+        startGame();
+      });
+    } else {
+      console.error("startButton要素が見つかりません");
+    }
 
     // Touch control buttons - エラーハンドリング追加
     const touchButtons = [
@@ -1093,7 +1199,9 @@ window.onload = async () => {
     touchButtons.forEach(button => {
       const element = document.getElementById(button.id);
       if (element) {
-        element.addEventListener("click", () => {
+        element.addEventListener("click", (e) => {
+          console.log(`${button.id}がクリックされました`);
+          e.preventDefault();
           const event = new KeyboardEvent('keydown', {key: button.key});
           document.dispatchEvent(event);
         });
@@ -1157,11 +1265,12 @@ window.onload = async () => {
       }
     });
 
+    console.log("初期化完了");
     update();
   } catch (error) {
     console.error("ゲームの初期化中にエラーが発生しました:", error);
   }
-}
+});
 
 const dig = (x,y) => {
   map[x][y] = 0;
@@ -1183,8 +1292,10 @@ const dig = (x,y) => {
 }
 
 const update = () => {
-  if (gameState !== "playing") {
-    renderer.render(scene,camera);
+  if (gameState !== "playing" || !renderer || !scene || !camera) {
+    if (renderer && scene && camera) {
+      renderer.render(scene,camera);
+    }
     window.requestAnimationFrame(update);
     return;
   }
@@ -1486,31 +1597,33 @@ body {
   font-size: 14px;
 }
 
-/* タッチボタンをダンジョンウィンドウに重ねる - 大きなサイズ */
+/* タッチボタンをダンジョンウィンドウに重ねる - 修正版 */
 #touchControls {
   position: absolute;
-  bottom: 20px;
-  right: 20px;
+  bottom: 30px;
+  left: 50%;
+  transform: translateX(-50%);
   display: none; /* デフォルトは非表示 */
   flex-direction: column;
   align-items: center;
-  gap: 10px;
+  gap: 15px;
   z-index: 1000;
   pointer-events: none; /* コンテナ自体はクリック無効 */
 }
 
 #touchControls .control-row {
   display: flex;
-  gap: 10px;
+  gap: 15px;
   justify-content: center;
+  align-items: center;
 }
 
 .touch-button {
-  width: 80px;  /* 60px から 80px に拡大 */
-  height: 80px; /* 60px から 80px に拡大 */
-  font-size: 32px; /* 24px から 32px に拡大 */
-  border: 4px solid #333; /* 3px から 4px に拡大 */
-  border-radius: 16px; /* 12px から 16px に拡大 */
+  width: 100px;  /* 80px から 100px に拡大 */
+  height: 100px; /* 80px から 100px に拡大 */
+  font-size: 40px; /* 32px から 40px に拡大 */
+  border: 5px solid #333; /* 4px から 5px に拡大 */
+  border-radius: 20px; /* 16px から 20px に拡大 */
   background-color: rgba(240, 240, 240, 0.95); /* 透明度を少し上げる */
   cursor: pointer;
   display: flex;
@@ -1530,7 +1643,7 @@ body {
 
 .touch-button:active {
   background-color: rgba(200, 200, 200, 0.95);
-  transform: scale(0.92); /* 押下時の縮小を少し大きく */
+  transform: scale(0.90); /* 押下時の縮小を少し大きく */
 }
 
 .touch-button:hover {
@@ -1609,31 +1722,33 @@ body {
     padding: 10px;
   }
   
-  /* タッチボタンをダンジョンウィンドウに重ねる - 大きなサイズ */
+  /* タッチボタンをダンジョンウィンドウに重ねる - 修正版 */
   #touchControls {
     position: absolute;
-    bottom: 20px;
-    right: 20px;
+    bottom: 30px;
+    left: 50%;
+    transform: translateX(-50%);
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 10px;
+    gap: 15px;
     z-index: 1000;
     pointer-events: none; /* コンテナ自体はクリック無効 */
   }
   
   #touchControls .control-row {
     display: flex;
-    gap: 10px;
+    gap: 15px;
     justify-content: center;
+    align-items: center;
   }
   
   .touch-button {
-    width: 80px;  /* 60px から 80px に拡大 */
-    height: 80px; /* 60px から 80px に拡大 */
-    font-size: 32px; /* 24px から 32px に拡大 */
-    border: 4px solid #333; /* 3px から 4px に拡大 */
-    border-radius: 16px; /* 12px から 16px に拡大 */
+    width: 100px;  /* 80px から 100px に拡大 */
+    height: 100px; /* 80px から 100px に拡大 */
+    font-size: 40px; /* 32px から 40px に拡大 */
+    border: 5px solid #333; /* 4px から 5px に拡大 */
+    border-radius: 20px; /* 16px から 20px に拡大 */
     background-color: rgba(240, 240, 240, 0.95); /* 透明度を少し上げる */
     cursor: pointer;
     display: flex;
@@ -1653,7 +1768,7 @@ body {
   
   .touch-button:active {
     background-color: rgba(200, 200, 200, 0.95);
-    transform: scale(0.92); /* 押下時の縮小を少し大きく */
+    transform: scale(0.90); /* 押下時の縮小を少し大きく */
   }
   
   .touch-button:hover {
@@ -1882,7 +1997,7 @@ body {
     <div class="treasure-info">
       💰 みつけたたからばこ: <span id="found">0</span> / <span id="total">0</span>
     </div>
-    <div class="treasure-info">
+       <div class="treasure-info">
       📊 レベル: ハンターモード
     </div>
     <div id="status">ロボットをさけてたからばこをあつめよう！</div>
